@@ -5,3 +5,6 @@
 ### Feature: Payload logging middleware
 - Classification: Repeated pattern (Express middleware).
 - Who wrote the code: Me,.I chose manual because the file is small.
+
+##DAY 2
+No AI used
