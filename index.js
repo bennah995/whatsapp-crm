@@ -1,4 +1,4 @@
-require('dotenv').config();
+require("dotenv").config();
 
 const express = require("express");
 const app = express();
@@ -10,10 +10,12 @@ function verifySignature(req, res, buf) {
   if (!signature) {
     throw new Error("No signature");
   }
-  const expected = "sha256=" + crypto
-    .createHmac("sha256", process.env.META_APP_SECRET)
-    .update(buf)
-    .digest("hex");
+  const expected =
+    "sha256=" +
+    crypto
+      .createHmac("sha256", process.env.META_APP_SECRET)
+      .update(buf)
+      .digest("hex");
   if (!crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) {
     throw new Error("Invalid signature");
   }
@@ -27,17 +29,22 @@ function parseIncoming(body) {
   if (!message) return null;
 
   return {
-    from: message.from,            // phone number
-    text: message.text?.body,      // text content
+    from: message.from, // phone number
+    text: message.text?.body, // text content
     timestamp: message.timestamp,
     messageId: message.id,
   };
 }
 
 const whatsappRoutes = require("./routes/whatsapp");
-app.use("/whatsapp", express.json({ verify: verifySignature}));
+app.use("/whatsapp", express.json({ verify: verifySignature }));
 app.use("/whatsapp", whatsappRoutes);
 
+const leadsRoutes = require("./routes/leads");
+app.use("/api", express.json());
+app.use("/api", leadsRoutes);
+
 app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`)
-})
+  console.log(`Server running on port ${PORT}`);
+});
+

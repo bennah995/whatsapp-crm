@@ -2,6 +2,10 @@ const express = require("express");
 const router = express.Router();
 const axios = require("axios");
 
+const { findOrCreateLead, updateLead } = require("../db/leads");
+const { getConversation, saveConversation } = require("../db/conversations");
+const { logMessage } = require("../db/messages");
+
 function parseIncoming(body) {
   const entry = body.entry?.[0];
   const change = entry?.changes?.[0];
@@ -10,8 +14,8 @@ function parseIncoming(body) {
   if (!message) return null;
 
   return {
-    from: message.from,            // phone number
-    text: message.text?.body,      // text content
+    from: message.from, // phone number
+    text: message.text?.body, // text content
     timestamp: message.timestamp,
     messageId: message.id,
   };
@@ -25,36 +29,41 @@ const STATES = {
   DONE: "done",
 };
 
-const sessions = new Map(); // phone -> { state, data }
+async function handleMessage(lead, text) {
+  const convo = await getConversation(lead.id);
+  const state = convo ? convo.state : STATES.GREETING;
+  const data = convo ? JSON.parse(convo.data || "{}") : {}
 
-function handleMessage({ from, text }) {
-  let session = sessions.get(from) || { state: STATES.GREETING, data: {} };
+  let reply;
+  let nextState = state;
 
-  if (session.state === STATES.GREETING) {
-    session.state = STATES.AWAITING_NAME;
-    sessions.set(from, session);
-    return "Karibu! What is your full name?";
+  if (state === STATES.GREETING) {
+    nextState = STATES.AWAITING_NAME;
+    reply = "Karibu! What is your full name?";
   }
-  if (session.state === STATES.AWAITING_NAME) {
-    session.data.name = text;
-    session.state = STATES.AWAITING_EMAIL;
-    sessions.set(from, session);
-    return `Asante ${text}. What is your email?`;
+  if (state === STATES.AWAITING_NAME) {
+    data.name = text;
+    nextState = STATES.AWAITING_EMAIL;
+    reply = `Asante ${text}. What is your email?`;
+    await updateLead(lead.id, { name: text });
   }
-  if (session.state === STATES.AWAITING_EMAIL) {
-    session.data.email = text;
-    session.state = STATES.AWAITING_INQUIRY;
-    sessions.set(from, session);
-    return "What are you interested in?";
+  if (state === STATES.AWAITING_EMAIL) {
+    data.email = text;
+    nextState = STATES.AWAITING_INQUIRY;
+    reply = "What are you interested in?";
+    await updateLead(lead.id, { email: text });
   }
-  if (session.state === STATES.AWAITING_INQUIRY) {
-    session.data.inquiry = text;
-    session.state = STATES.DONE;
-    sessions.set(from, session);
-    // TODO: persist to DB tomorrow
-    return "Thank you. An agent will be in touch shortly.";
+  if (state === STATES.AWAITING_INQUIRY) {
+    data.inquiry = text;
+    nextState = STATES.DONE;
+    reply = "Thank you. An agent will be in touch shortly.";
+    await updateLead(lead.id, { inquiry_type: text, status: "qualified" });
   }
-  return "You are all set. Dial again any time.";
+  if(state === STATES.DONE){
+    reply = "You are all set. Dial again any time.";
+  }
+  await saveConversation(lead.id, nextState, data);
+  return reply;
 }
 
 async function sendMessage(to, text) {
@@ -67,7 +76,7 @@ async function sendMessage(to, text) {
     },
     {
       headers: { Authorization: `Bearer ${process.env.META_ACCESS_TOKEN}` },
-    }
+    },
   );
 }
 
@@ -83,19 +92,20 @@ router.get("/webhook", (req, res) => {
   return res.sendStatus(403);
 });
 
-router.post("/webhook", async(req, res) => {
+router.post("/webhook", async (req, res) => {
   const parsed = parseIncoming(req.body);
-  if(!parsed){
-    return res.sendStatus(200);
+  if (!parsed) return res.sendStatus(200);
+
+  const lead = await findOrCreateLead(parsed.from);
+  await logMessage(lead.id, "inbound", parsed.text);
+
+  const reply = await handleMessage(lead, parsed.text);
+  try {
+    await sendMessage(parsed.from, reply);
+  } catch (err) {
+    console.log(err);
   }
 
-    const reply = handleMessage(parsed);
-    try{
-      await sendMessage(parsed.from, reply );
-    } catch(err){
-      console.log(err);
-    }
-  
   console.log("Incoming WhatsApp update:", JSON.stringify(req.body, null, 2));
   res.sendStatus(200);
 });
