@@ -36,3 +36,7 @@ schema.
 Limit/offset/search/status filtering logic in `GET /api/leads` — AI-generated 
 alongside the CRUD routes above, same file. Standard pagination pattern 
 (clamped limit, offset, LIKE-based search, WHERE filtering).
+
+
+# DAY 4
+Ai used to help stylethe pages: leads and lead details pages with a color guidance from me
